@@ -9,11 +9,9 @@ import pandas as pd
 import numpy as np
 import re
 from datetime import datetime
-import sys
-import traceback
 import os
 from abc import ABC, abstractmethod
-import functools
+
 
 
 def convert_to_numeric(df):
@@ -25,7 +23,7 @@ def convert_to_numeric(df):
 class BaseParse(ABC):
     
     def get_title_params_init(self, foundry_name):
-       params_init = {    'lot_id': None,
+       params_init ={'lot_id': None,
                     'device_name': None,
                     'process_name': None,
                     'pcm_spec_name': None,
@@ -64,6 +62,7 @@ class BaseParse(ABC):
             
         df = convert_to_numeric(df)
         df['date'] = pd.to_datetime(df['date'])
+        df = df.drop(columns=['wafer_qty'], axis=1)
         return df
     
     def add_limits(self, df, params_header):
@@ -164,42 +163,25 @@ class TSMC(BaseParse):
     def parse_title(self):
         title_params = self.get_title_params_init('TSMC')
 
-        for line in self.lines:
-            
-                line = line.strip()
-                if line.startswith('TYPE NO'):
-                    line = re.sub('   +', '||', line)
-                    t_split = line.split('||')
-                    
-                    for t in t_split:
-                        if t.startswith('TYPE NO'):
-                            t = t.split(':')[1].strip()   
-                            title_params['device_name'] = t
+        with open(self.filepath, 'r', encoding = 'utf8') as f:
+            string = f.read()
     
-                        if t.startswith('PROCESS'):
-                            t = t.split(':')[1].strip()
-                            title_params['process_name'] = t
-
-                        if t.startswith('PCM SPEC'):
-                            t = t.split(':')[1].strip()
-                            title_params['pcm_spec_name'] = t
-   
-                        if t.startswith('QTY'):
-                            t = t.split(':')[1].strip()
-                            t = t.split()[0]
-                            title_params['wafer_qty'] = t
-
-                    
-                if line.startswith('LOT ID'):
-                    lot_id = line.split('DATE')[0].strip().split(':')[1].strip().split('.')[0]
-                    title_params['lot_id'] = lot_id
-                    date = line.split('DATE')[1].strip().split(':')[1].strip()
-                    date = datetime.strptime(date, '%m/%d/%Y')
-                    title_params['date'] = date
-                    
+        patterns = {'device_name':  re.compile(r"{}\s*:([\w-]+)".format('TYPE NO')),
+              'process_name': re.compile(r"{}\s*:([\w-]+)".format('PROCESS')),
+              'wafer_qty': re.compile(r"{}\s*:([0-9]+)".format('QTY')),
+              'date': re.compile(r"{}\s*:([0-9/]+)".format('DATE')),
+              'pcm_spec_name': re.compile(r"{}\s*:([\w-]+)".format('PCM SPEC')),
+              'lot_id': re.compile(r"{}\s*:([\w]+)".format('LOT ID'))}
+    
+        for k, v in patterns.items():
+            match = patterns[k].search(string)
+            if match:
+                res = match.group(1)
+            else:
+                res = match
+            title_params[k] = res
         return title_params
 
-          
     def _slice_data(self):
         indeces = []
         body_data = []
@@ -295,33 +277,24 @@ class KeyFoundry(BaseParse):
     def parse_title(self):
         title_params = self.get_title_params_init('KF')
       
-        for line in self.lines:
-                line = line.strip()
-
-                if line.startswith('LOT NO'):      
-                    lot_id = line.replace('LOT NO', '').strip()
-                    title_params['lot_id'] = lot_id
-                    
-                if line.startswith('DEVICE NAME'):         
-                    temp = line.replace('DEVICE NAME', '').strip().split('/')[1].strip()
-                    title_params['device_name'] = temp
-                    
-                    
-                if line.startswith('TEST PATTERN NAME'):            
-                    temp1 = line.split(',')[1].replace('DATE', '').strip()
-                    temp1 = datetime.strptime(temp1, '%Y/%m/%d %H:%M:%S')
-                    title_params['date'] = temp1
-
-                    
-                if line.startswith('PCM SPEC NAME'):           
-                    temp1 = line.split(',')[1].replace('WAFER/LOT QTY', '').strip()
-                    temp2 = line.split(',')[0].replace('PCM SPEC NAME', '').strip()
-                    title_params['wafer_qty'] = temp1
-                    title_params['pcm_spec_name'] = temp2
-                    
-                if line.startswith('PROCESS NAME'):           
-                    temp1 = line.split(',')[0].replace('PROCESS NAME', '').strip()
-                    title_params['process_name'] = temp1
+        with open(self.filepath, 'r', encoding = 'utf8') as f:
+            string = f.read()
+    
+        patterns = {'device_name':  re.compile(r"{}\s*\w*/([\w-]+)".format('DEVICE NAME')),
+              'process_name': re.compile(r"{}\s*([\w]+)".format('PROCESS NAME')),
+              'wafer_qty': re.compile(r"{}\s*([0-9]+)".format('WAFER/LOT QTY')),
+              'date': re.compile(r"{}\s*([0-9/]+)".format('DATE')),
+              'pcm_spec_name': re.compile(r"{}\s*([\w]+)".format('PCM SPEC NAME')),
+              'lot_id': re.compile(r"{}\s*([\w]+)".format('LOT NO'))}
+    
+        for k, v in patterns.items():
+            match = patterns[k].search(string)
+            if match:
+                res = match.group(1)
+            else:
+                res = match
+            title_params[k] = res
+            
         return title_params
         
 
@@ -331,70 +304,64 @@ class KeyFoundry(BaseParse):
         body_header = ['PARAMETER', 'SPEC', 'WAFER']
         body = []
         
-        try:
+   
             
-            for line in self.lines:
+        for line in self.lines:
+            
+            if line.startswith(tuple(body_header)):
+                temp = re.sub("\s\s+", "|", line)
+                temp = temp.split('|')
                 
-                if line.startswith(tuple(body_header)):
-                    temp = re.sub("\s\s+", "|", line)
-                    temp = temp.split('|')
-                    
-                    body.append(temp)
-                    
-    
-            df = pd.DataFrame(body).T
-            df = df.rename(columns=df.iloc[0]).drop(df.index[0])
-            df = df.rename(columns ={'WAFER ID / UNIT' : 'unit', 'SPEC LOW': 'spec_low', 'SPEC HIGH': 'spec_high', 'PARAMETER': 'param'})
-    
-            df = convert_to_numeric(df)
-            df = df.dropna()
-        
-            return df
-    
-        except Exception:
-            self._error_log()
+                body.append(temp)
                 
+
+        df = pd.DataFrame(body).T
+        df = df.rename(columns=df.iloc[0]).drop(df.index[0])
+        df = df.rename(columns ={'WAFER ID / UNIT' : 'unit', 'SPEC LOW': 'spec_low', 'SPEC HIGH': 'spec_high', 'PARAMETER': 'param'})
+
+        df = convert_to_numeric(df)
+        df = df.dropna()
+    
+        return df
+    
     def parse_body(self):
         body_df = pd.DataFrame()
         body = []
-        try:
-            for line in self.lines:
-                line = line.strip()
-    
-                
-                if line.startswith('PARAMETER'):
-                    temp = re.sub('\s\s+', '|', line)
-                    temp = temp.split('|')
-                    body.append(temp)
-                    
-                if line[:2].strip().isdigit() or line[:1].strip().isdigit():
-                    temp = re.sub('\s\s+', '|', line)
-                    body.append(temp.split('|'))
-                    
-                
-            body_df = pd.DataFrame(body)
-            body_df = body_df.rename(columns=body_df.iloc[0]).drop(body_df.index[0])
-
-            body_df.columns = [x.strip() for x in body_df.columns]
-            
-            
-            wafer_id =  body_df['PARAMETER'].apply(lambda x: x.split(' ')[0])
-            structure_location =  body_df['PARAMETER'].apply(lambda x: x.split(' ')[1])
-            
-            body_df = body_df.drop('PARAMETER', axis=1)
-            body_df.insert(0,'wafer_id', wafer_id)
-            body_df.insert(0,'structure_location', structure_location)
-            
-            body_df = body_df.set_index(['wafer_id', 'structure_location']).stack().reset_index()
-            body_df.columns = ['wafer_id', 'structure_loc','param', 'value']
-            
-            body_df = convert_to_numeric(body_df)
-
-            return body_df
         
-        except Exception:
-            self._error_log()
+        for line in self.lines:
+            line = line.strip()
+
             
+            if line.startswith('PARAMETER'):
+                temp = re.sub('\s\s+', '|', line)
+                temp = temp.split('|')
+                body.append(temp)
+                
+            if line[:2].strip().isdigit() or line[:1].strip().isdigit():
+                temp = re.sub('\s\s+', '|', line)
+                body.append(temp.split('|'))
+                
+            
+        body_df = pd.DataFrame(body)
+        body_df = body_df.rename(columns=body_df.iloc[0]).drop(body_df.index[0])
+
+        body_df.columns = [x.strip() for x in body_df.columns]
+        
+        
+        wafer_id =  body_df['PARAMETER'].apply(lambda x: x.split(' ')[0])
+        structure_location =  body_df['PARAMETER'].apply(lambda x: x.split(' ')[1])
+        
+        body_df = body_df.drop('PARAMETER', axis=1)
+        body_df.insert(0,'wafer_id', wafer_id)
+        body_df.insert(0,'structure_location', structure_location)
+        
+        body_df = body_df.set_index(['wafer_id', 'structure_location']).stack().reset_index()
+        body_df.columns = ['wafer_id', 'structure_loc','param', 'value']
+        
+        body_df = convert_to_numeric(body_df)
+
+        return body_df
+
 class GF(BaseParse):
     
     def __init__(self, filepath):
@@ -489,7 +456,7 @@ class GF(BaseParse):
         body_df = body_df.T.reset_index()
         body_df.columns = ['param', 'unit', 'spec_high', 'spec_low']
         body_df = convert_to_numeric(body_df)
-        
+        body_df = body_df.dropna(how='all')
         return body_df
     
     
@@ -550,8 +517,7 @@ class GF2(BaseParse):
 
         body_df.columns = [x.strip() for x in body_df.columns]
         body_df = body_df.drop(columns = ['Site_X','Site_Y', 'Pass/Fail', 'Vendor Wafer Scribe ID'], axis=1)
-    
-        # data = convert_to_numeric(data)
+        body_df = body_df.drop(body_df.filter(regex='Site_').columns, axis=1)
     
         body_df = body_df.set_index(['Wafer ID/Alias', 'SiteID']).stack().reset_index()
         body_df.columns = ['wafer_id', 'structure_loc','param', 'value']
@@ -579,7 +545,6 @@ class GF2(BaseParse):
         if body_df.empty:
             return body_df
         
-        # body_df = convert_to_numeric(body_df)
         body_df = body_df.dropna(how='all', axis=1)
         body_df = body_df.rename(columns=body_df.iloc[0]).drop(body_df.index[0])
         
@@ -589,6 +554,7 @@ class GF2(BaseParse):
         body_df = body_df.T.reset_index()
         body_df.columns = ['param', 'unit', 'spec_high', 'spec_low']
         body_df = convert_to_numeric(body_df)
+        body_df = body_df.dropna(how='all')
         
         return body_df
         

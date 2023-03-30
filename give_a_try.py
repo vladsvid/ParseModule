@@ -12,22 +12,65 @@ import os
 
 import ParseModule
 
+from sqlalchemy import create_engine
+
+from sqlalchemy import MetaData
+from sqlalchemy import Table
+from sqlalchemy import create_engine
+from sqlalchemy import exc
+import traceback
+
+
+engine = create_engine("mysql://root:root@localhost/my_db")
+def load_data(data, sql_table, engine):
+    
+    try:
+        data.to_sql(sql_table, engine, if_exists='append', index=False)
+        print('all good')
+ 
+    # except exc.OperationalError:
+    #     print('Different table schema')
+    #     # meta = sqlalchemy.MetaData(bind=engine)
+    #     # sqlalchemy.MetaData.reflect(meta)
+    #     # db_table = meta.tables[sql_table]
+    #     # df_cols = list(df.columns)
+    #     # db_cols = db_table.columns.keys()
+    #     # diff = list(set(df_cols) - set(db_cols))
+    #     # print(diff)
+    #     df_db = pd.read_sql_table(sql_table, engine.connect())
+    #     ddf = pd.concat([data, df_db])
+    #     ddf.to_sql(sql_table, engine, if_exists='replace', index=False)
+    #     print('Table updated')
+        
+    # except exc.DataError as e:
+    #     shutil.copy()
+    #     print(e)
+    
+    except Exception:
+        print(traceback.format_exc())
+        raise
+
 path1 = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\TSMC\C00P69.00.txt"
 path2 = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GMTest\KA03483-MAR24-2021.TXT"
 path3 = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GF\WAT\7knu40973.000.csv.csv"
 
 ll = []
-for ind, path in enumerate(glob.glob(r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GF\WAT\*')):
+for ind, path in enumerate(glob.glob(r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GMTest\*')):
     
     try:
         print(os.path.basename(path),ind)
-        obj = ParseModule.GF2(path)
+        obj = ParseModule.KeyFoundry(path)
         date = obj.get_date()
         # df = obj.get_compelete_df()
+        obj.file_check()
+        df_header = obj.title_to_dataframe()
         # check1 = tsmc.body_header_check()
         # check2 = tsmc.title_check()
-        obj.file_check()
+        
         ll.append([path, 'passed', date])
+        
+        load_data(df_header, 'kf_header' , engine)
+        # load_data(df, 'gf_data' , engine)
     
         
     
@@ -46,10 +89,23 @@ print('lolo')
 import pandas as pd
 ddf = pd.DataFrame(ll)
 
+#%%
+
+ddf.columns = ['path', 'ifPassed', 'date']
+
+ddf_filterred = ddf[ddf['ifPassed'] != 'passed']
+
+
+
+
+
+
 
 
 #%%
 import pandas as pd
+import numpy as np
+
 
 def convert_to_numeric(df):
    df = df.applymap(lambda x: x.replace(' ','') if isinstance(x,str) else x)
@@ -136,7 +192,9 @@ for x in data.columns:
     print(x)
 
 data.columns = [x.strip() for x in data.columns]
-data = data.drop(columns = ['Site_X','Site_Y', 'Pass/Fail', 'Vendor Wafer Scribe ID'], axis=1)
+data = data.drop(columns = ['Pass/Fail', 'Vendor Wafer Scribe ID'], axis=1)
+
+data = data.drop(data.filter(regex='Site_').columns, axis=1)
 
 # data = convert_to_numeric(data)
 
@@ -152,6 +210,7 @@ obj = ParseModule.GF2(p)
 date = obj.get_date()
 
 df1 = obj.parse_body_header()
+df = obj.get_compelete_df()
 
 #%%
 
@@ -180,6 +239,7 @@ body_df = body_df.drop(columns = ['Site_X','Site_Y', 'Pass/Fail', 'Wafer ID/Alia
 body_df = body_df.T.reset_index()
 body_df.columns = ['param', 'unit', 'spec_high', 'spec_low']
 body_df = convert_to_numeric(body_df)
+body_df = body_df.dropna(how='all')
 
 
 
@@ -297,4 +357,102 @@ date = tsmc.get_date()
 # tsmc.file_check()
 # tsmc_df = tsmc.get_compelete_df()
 # tsmc_df = tsmc.get_compelete_df()
+
+#%% TSMC
+import re
+
+p = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\TSMC\C00P70.00.txt"
+
+with open(p, 'r') as f:
+    string = f.read()
+    
+    
+fin ={'lot_id': None,
+             'device_name': None,
+             'process_name': None,
+             'pcm_spec_name': None,
+             'wafer_qty': None,
+             'date': None
+             }
+
+
+dd = {'device_name':  re.compile(r"{}\s*:([\w-]+)".format('TYPE NO')),
+      'process_name': re.compile(r"{}\s*:([\w-]+)".format('PROCESS')),
+      'wafer_qty': re.compile(r"{}\s*:([0-9]+)".format('QTY')),
+      'date': re.compile(r"{}\s*:([0-9/]+)".format('DATE')),
+      'pcm_spec_name': re.compile(r"{}\s*:([\w-]+)".format('PCM SPEC')),
+      'lot_id': re.compile(r"{}\s*:([\w]+)".format('LOT ID'))}
+
+
+
+for k, v in dd.items():
+    
+    match = dd[k].search(string)
+    if match:
+        res = match.group(1)
+        print(res)
+    else:
+        res = match
+        print(res)
+    fin[k] = res
+
+#%% KF
+p = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GMTest\KA01017-FEB26-2021.TXT"
+
+with open(p, 'r') as f:
+    string = f.read()
+    
+    
+fin ={'lot_id': None,
+             'device_name': None,
+             'process_name': None,
+             'pcm_spec_name': None,
+             'wafer_qty': None,
+             'date': None
+             }
+
+
+dd = {'device_name':  re.compile(r"{}\s*\w*/([\w-]+)".format('DEVICE NAME')),
+      'process_name': re.compile(r"{}\s*([\w]+)".format('PROCESS NAME')),
+      'wafer_qty': re.compile(r"{}\s*([0-9]+)".format('WAFER/LOT QTY')),
+      'date': re.compile(r"{}\s*([0-9/]+)".format('DATE')),
+      'pcm_spec_name': re.compile(r"{}\s*([\w]+)".format('PCM SPEC NAME')),
+      'lot_id': re.compile(r"{}\s*([\w]+)".format('LOT NO'))}
+
+
+
+for k, v in dd.items():
+    
+    match = dd[k].search(string)
+    if match:
+        res = match.group(1)
+        print(k, res)
+    else:
+        res = match
+        print(k, res)
+    fin[k] = res
+# ll = ['TYPE NO', 'PROCESS', 'PCM SPEC']
+
+# regexp = re.compile(r"{}\s*:\s*([\w\.-_!@]+)".format('LOT ID'))
+
+# m = regexp.search(string)
+# print(m.group(1))
+
+# s = "hi my name is ryan, and i am new to python and would like to learn more"
+# mm = re.search("^name: (\w+)", s)
+
+# regexp = re.compile("name(.*)$")
+# print(regexp.search(s).group(1))
+
+
+# import re
+# s = "hi my name is ryan, and i am new to python and would like to learn more"
+# m = re.search("^name: (\w+)", s)
+
+
+
+
+
+
+
 
