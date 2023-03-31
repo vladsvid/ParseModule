@@ -10,7 +10,9 @@ sys.path.insert(0, r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\ParseMod
 import glob
 import os
 
-import ParseModule
+
+
+from ParseModule import TSMC, KeyFoundry, GF, GF2
 
 from sqlalchemy import create_engine
 
@@ -20,6 +22,15 @@ from sqlalchemy import create_engine
 from sqlalchemy import exc
 import traceback
 
+
+path = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\TSMC\C00P63.00.txt"
+obj = TSMC(path)
+
+obj.file_check()
+
+h = obj.parse_body_header()
+
+#%%
 
 engine = create_engine("mysql://root:root@localhost/my_db")
 def load_data(data, sql_table, engine):
@@ -55,11 +66,11 @@ path2 = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GMTest\KA03483-MAR2
 path3 = r"C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GF\WAT\7knu40973.000.csv.csv"
 
 ll = []
-for ind, path in enumerate(glob.glob(r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GMTest\*')):
+for ind, path in enumerate(glob.glob(r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GF\WAT\*')):
     
     try:
         print(os.path.basename(path),ind)
-        obj = ParseModule.KeyFoundry(path)
+        obj = GF2(path)
         date = obj.get_date()
         # df = obj.get_compelete_df()
         obj.file_check()
@@ -69,7 +80,7 @@ for ind, path in enumerate(glob.glob(r'C:\Users\VSviders\Documents\devs\E-test\E
         
         ll.append([path, 'passed', date])
         
-        load_data(df_header, 'kf_header' , engine)
+        load_data(df_header, 'gf_header' , engine)
         # load_data(df, 'gf_data' , engine)
     
         
@@ -89,6 +100,9 @@ print('lolo')
 import pandas as pd
 ddf = pd.DataFrame(ll)
 
+
+
+ddf.to_csv(r'C:\Users\VSviders\Documents\devs\E-test\ETEST_data\GF_errors.csv', index=False)
 #%%
 
 ddf.columns = ['path', 'ifPassed', 'date']
@@ -449,7 +463,13 @@ for k, v in dd.items():
 # s = "hi my name is ryan, and i am new to python and would like to learn more"
 # m = re.search("^name: (\w+)", s)
 
+#%%
 
+temp = ''' 401-015-42L 401-015-42L sefgser sdrgserb :?!'''
+
+prod = re.findall(r'\d{3}-\d{3}', temp)
+
+print(prod)
 
 
 

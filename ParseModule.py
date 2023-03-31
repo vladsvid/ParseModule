@@ -107,8 +107,14 @@ class BaseParse(ABC):
         return title_params['lot_id']
     
 
-    def get_compelete_df(self):
+    def get_compelete_df(self, check=True):
+        self.file_check()
         title_params = self.parse_title()
+        dev_name = title_params['device_name']
+        prod = re.findall(r'\d{3}-\d{3}', dev_name)
+        if prod:
+            title_params['ic_universal_part_no'] = prod[0]
+        
         df = self.parse_body()
         params_header = self.parse_body_header()
         df = self.add_title_to_data(df, title_params)
@@ -117,30 +123,26 @@ class BaseParse(ABC):
         return df
     
     def body_header_check(self):
-        
         check = self.parse_body_header()
         if check.empty:
             raise Exception('Header body is empty, check it out!')
             
     def body_check(self):
-        
         check = self.parse_body()
         if check.empty:
             raise Exception('Body is empty, check it out!')
             
     def title_check(self):
-        
         params = self.parse_title()
-        
-        params_list = ['lot_id', 'device_name', 'date' ]
+        params_list_mandatory = ['lot_id', 'device_name', 'date' ]
         
         ll = []
         
         for k , v in params.items():
-            if k in params_list:
+            if k in params_list_mandatory:
                 ll.append(v)
             
-        if None in ll or '' in ll:
+        if None in ll:
             raise Exception('Mandatory title parameters are missing, check it out')
 
     
@@ -148,10 +150,6 @@ class BaseParse(ABC):
         self.title_check()
         self.body_header_check()
         self.body_check()
-
-            
-    
-
 
 class TSMC(BaseParse):
 
@@ -180,6 +178,7 @@ class TSMC(BaseParse):
             else:
                 res = match
             title_params[k] = res
+            
         return title_params
 
     def _slice_data(self):
@@ -201,44 +200,41 @@ class TSMC(BaseParse):
     
     def parse_body_header(self):
         params_header = pd.DataFrame()
-
         sliced_data = self._slice_data()
-        # clear data and grab limits and column names
+        body_header = ['ID', 'SPEC HI', 'SPEC LO', 'WAF']
+        
+        
+        if len(sliced_data) == 0:
+            return params_header
+
         for b in sliced_data:
-            
             header = []
             for x in b:
                 x = x.strip()
                 
                 if x.startswith('--'):
                     continue
-                
-                if x.startswith('ID') or x.startswith('SPEC') or x.startswith('WAF'):
-                    temp = re.sub(' +', '||', x)
-                    temp = temp.split('||')
+                if x.startswith(tuple(body_header)):
+                    temp = re.sub('\s+', '|', x)
+                    temp = temp.split('|')
                     header.append(temp)
                     
-            df = pd.DataFrame(header[1:], columns=header[0])
-            df = df.drop(columns=['WAF', 'SITE'])
-            df = df.T.reset_index()
-            df.columns = ['param', 'unit', 'spec_high', 'spec_low']
-            params_header = pd.concat([params_header, df])
-            
+            temp_df = pd.DataFrame(header[1:], columns=header[0])
+            temp_df = temp_df.drop(columns=['WAF', 'SITE'])
+            temp_df = temp_df.T.reset_index()
+            temp_df.columns = ['param', 'unit', 'spec_high', 'spec_low']
+            params_header = pd.concat([params_header, temp_df])
         params_header = convert_to_numeric(params_header)
         
- 
         return params_header
     
-
-            
-
     def parse_body(self):
-        
         bb = pd.DataFrame()
-        
-     
         sliced_data = self._slice_data()
-
+        
+        if len(sliced_data) == 0:
+            return bb
+        
         for b in sliced_data:
             body = []
             for x in b:
@@ -248,8 +244,8 @@ class TSMC(BaseParse):
                     continue
                 
                 if x.startswith('WAF'):
-                    temp = re.sub('  +', ' ', x)
-                    temp = temp.split()
+                    temp = re.sub('\s+', '|', x)
+                    temp = temp.split('|')
                     body.append(temp)
                     
                 if x[:2].strip().isdigit() or x[:1].strip().isdigit():
@@ -305,7 +301,6 @@ class KeyFoundry(BaseParse):
         body = []
         
    
-            
         for line in self.lines:
             
             if line.startswith(tuple(body_header)):
